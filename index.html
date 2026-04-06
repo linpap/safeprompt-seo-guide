@@ -103,15 +103,34 @@
     accent-color: #27ae60; flex-shrink: 0;
     vertical-align: middle; margin-right: 8px;
   }
+
+  /* Tracker table rows */
   tr.completed td {
     text-decoration: line-through;
     color: #9aad9a !important;
     background: #f0fff4 !important;
   }
   tr.completed td:first-child { font-weight: 400; }
+
+  /* Checklist items */
   .checklist li:has(> input.task-checkbox) { padding-left: 0; display: flex; align-items: flex-start; }
   .checklist li:has(> input.task-checkbox)::before { display: none; }
   .checklist li.completed { text-decoration: line-through; color: #9aad9a; }
+
+  /* Step items */
+  .step { position: relative; }
+  .step-num { cursor: pointer; user-select: none; transition: background 0.2s; }
+  .step-num:hover { opacity: 0.85; }
+  .step.completed .step-num { background: #27ae60 !important; }
+  .step.completed .step-body strong { text-decoration: line-through; color: #9aad9a; }
+  .step.completed .step-body p { color: #bbb; }
+  .step-done-hint { font-size: 9px; letter-spacing: 1px; color: #aaa; text-align: center; margin-top: 2px; font-family: 'Arial', sans-serif; display: block; }
+
+  /* TOC items */
+  .toc-item { cursor: default; }
+  .toc-item input.task-checkbox { margin-right: 12px; flex-shrink: 0; }
+  .toc-item.completed .toc-title { text-decoration: line-through; color: #9aad9a; }
+  .toc-item.completed .toc-num { color: #9aad9a; }
 
   /* ── FLOATING TOOLBAR ── */
   .seo-toolbar {
@@ -1381,11 +1400,11 @@ Ian Ho | safeprompt.dev</div>
 </div>
 
 <script>
-(function () {
-  var STORAGE_KEY = 'safeprompt-seo-v1';
+document.addEventListener('DOMContentLoaded', function () {
+  var STORAGE_KEY = 'safeprompt-seo-v2';
 
   function slugify(t) {
-    return t.toLowerCase().replace(/[^\w]+/g, '-').replace(/^-+|-+$/g, '').substring(0, 60);
+    return (t || '').toLowerCase().replace(/[^\w]+/g, '-').replace(/^-+|-+$/g, '').substring(0, 60);
   }
   function getState() {
     try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch (e) { return {}; }
@@ -1393,132 +1412,144 @@ Ian Ho | safeprompt.dev</div>
   function saveState(s) {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); } catch (e) {}
   }
-
   function updateProgress() {
     var all = document.querySelectorAll('input.task-checkbox');
-    var done = document.querySelectorAll('input.task-checkbox:checked');
-    var total = all.length, completed = done.length;
-    var pct = total > 0 ? Math.round(completed / total * 100) : 0;
+    var done = document.querySelectorAll('input.task-checkbox:checked').length;
+    var total = all.length;
+    var pct = total > 0 ? Math.round(done / total * 100) : 0;
     var pt = document.getElementById('progress-text');
     var pb = document.getElementById('progress-bar');
-    if (pt) pt.textContent = completed + ' / ' + total + ' tasks completed (' + pct + '%)';
+    if (pt) pt.textContent = done + ' / ' + total + ' tasks completed (' + pct + '%)';
     if (pb) pb.style.width = pct + '%';
   }
 
-  function makeCheckbox(taskId, taskName) {
-    var cb = document.createElement('input');
-    cb.type = 'checkbox';
-    cb.className = 'task-checkbox';
-    cb.dataset.taskId = taskId;
-    cb.dataset.taskName = taskName;
+  function registerCheckbox(cb, onToggle) {
     var state = getState();
-    if (state[taskId]) cb.checked = true;
+    if (state[cb.dataset.taskId]) { cb.checked = true; onToggle(true); }
     cb.addEventListener('change', function () {
-      var s = getState();
-      s[taskId] = cb.checked;
-      saveState(s);
+      var s = getState(); s[cb.dataset.taskId] = cb.checked; saveState(s);
+      onToggle(cb.checked);
       updateProgress();
-      var row = cb.closest('tr');
-      var li = cb.closest('li');
-      if (row) { row.classList.toggle('completed', cb.checked); }
-      if (li)  { li.classList.toggle('completed', cb.checked); }
     });
-    return cb;
   }
 
-  // ── 1. Tracker table rows (cells containing "☐ Todo") ──
+  // ── 1. TOC items ──
+  document.querySelectorAll('.toc-item').forEach(function (item, i) {
+    var titleEl = item.querySelector('.toc-title');
+    var name    = titleEl ? titleEl.textContent.trim() : 'Section ' + i;
+    var cb      = document.createElement('input');
+    cb.type = 'checkbox'; cb.className = 'task-checkbox';
+    cb.dataset.taskId   = 'toc-' + i + '-' + slugify(name.substring(0, 40));
+    cb.dataset.taskName = 'TOC: ' + name;
+    item.insertBefore(cb, item.firstChild);
+    registerCheckbox(cb, function (checked) {
+      item.classList.toggle('completed', checked);
+    });
+  });
+
+  // ── 2. Numbered step items (.step) — click the circle to toggle ──
+  document.querySelectorAll('.step').forEach(function (step, i) {
+    var strongEl = step.querySelector('.step-body strong');
+    var name     = strongEl ? strongEl.textContent.trim() : 'Step ' + (i + 1);
+    var cb       = document.createElement('input');
+    cb.type = 'checkbox'; cb.className = 'task-checkbox';
+    cb.style.display = 'none';
+    cb.dataset.taskId   = 'step-' + i + '-' + slugify(name.substring(0, 40));
+    cb.dataset.taskName = name;
+    step.appendChild(cb);
+
+    var numEl = step.querySelector('.step-num');
+    if (numEl) {
+      numEl.title = 'Click to mark done';
+      var hint = document.createElement('span');
+      hint.className = 'step-done-hint'; hint.textContent = 'click';
+      numEl.appendChild(hint);
+      numEl.addEventListener('click', function () {
+        cb.checked = !cb.checked;
+        cb.dispatchEvent(new Event('change'));
+      });
+    }
+    registerCheckbox(cb, function (checked) {
+      step.classList.toggle('completed', checked);
+      if (numEl) numEl.querySelector('.step-done-hint').textContent = checked ? '✓' : 'click';
+    });
+  });
+
+  // ── 3. Tracker table rows — match any td[1] that contains the ballot box char ──
   document.querySelectorAll('table tr').forEach(function (row) {
     var cells = row.querySelectorAll('td');
-    if (cells.length >= 2 && cells[1].textContent.trim() === '☐ Todo') {
-      var taskName = cells[0].textContent.trim();
-      var taskId   = 'tracker-' + slugify(taskName);
-      var cb = makeCheckbox(taskId, taskName);
+    if (cells.length >= 2 && cells[1].textContent.replace(/\s/g, '').indexOf('\u2610') !== -1) {
+      var name = cells[0].textContent.trim();
+      var cb   = document.createElement('input');
+      cb.type = 'checkbox'; cb.className = 'task-checkbox';
+      cb.style.display = 'block'; cb.style.margin = 'auto';
+      cb.dataset.taskId   = 'tracker-' + slugify(name);
+      cb.dataset.taskName = name;
       cells[1].textContent = '';
       cells[1].style.textAlign = 'center';
       cells[1].appendChild(cb);
-      var state = getState();
-      if (state[taskId]) row.classList.add('completed');
+      registerCheckbox(cb, function (checked) { row.classList.toggle('completed', checked); });
     }
   });
 
-  // ── 2. Pre-start checklist items ──
+  // ── 4. Checklist items (.checklist li) ──
   document.querySelectorAll('.checklist li').forEach(function (li, i) {
-    var taskName = li.textContent.trim();
-    var taskId   = 'check-' + i + '-' + slugify(taskName.substring(0, 40));
-    var cb = makeCheckbox(taskId, taskName);
+    var name = li.textContent.trim();
+    var cb   = document.createElement('input');
+    cb.type = 'checkbox'; cb.className = 'task-checkbox';
+    cb.dataset.taskId   = 'chk-' + i + '-' + slugify(name.substring(0, 40));
+    cb.dataset.taskName = name;
     li.insertBefore(cb, li.firstChild);
-    var state = getState();
-    if (state[taskId]) li.classList.add('completed');
+    registerCheckbox(cb, function (checked) { li.classList.toggle('completed', checked); });
   });
-
-  // ── 3. Publishing checklist items (also .checklist li, already handled above) ──
 
   updateProgress();
 
-  // ── Export to .txt ──
+  // ── Export .txt ──
   window.exportTasks = function () {
-    var lines = [];
-    lines.push('SafePrompt Offline SEO \u2014 Task Status Report');
-    lines.push('Exported: ' + new Date().toLocaleString());
-    lines.push('='.repeat(55));
-    lines.push('');
-
-    var sections = {};
-    var order    = [];
-
+    var lines = ['SafePrompt Offline SEO \u2014 Task Status', 'Exported: ' + new Date().toLocaleString(), '='.repeat(55), ''];
+    var groups = {}, order = [];
     document.querySelectorAll('input.task-checkbox').forEach(function (cb) {
-      var section = 'General';
-      var node = cb.parentElement;
+      var grp = 'General', node = cb.parentElement;
       while (node && node !== document.body) {
         if (node.classList && node.classList.contains('page')) {
-          var h = node.querySelector('h2');
-          if (h) section = h.textContent.trim().replace(/\s+/g, ' ');
-          break;
+          var h = node.querySelector('h2'); if (h) grp = h.textContent.replace(/\s+/g,' ').trim(); break;
         }
         node = node.parentElement;
       }
-      if (!sections[section]) { sections[section] = []; order.push(section); }
-      sections[section].push({ name: cb.dataset.taskName, done: cb.checked });
+      if (!groups[grp]) { groups[grp] = []; order.push(grp); }
+      groups[grp].push({ name: cb.dataset.taskName || '?', done: cb.checked });
     });
-
-    order.forEach(function (sec) {
-      lines.push('[ ' + sec + ' ]');
-      sections[sec].forEach(function (t) {
-        lines.push((t.done ? '[DONE] ' : '[    ] ') + t.name);
-      });
+    order.forEach(function (g) {
+      lines.push('\u25b6 ' + g);
+      groups[g].forEach(function (t) { lines.push((t.done ? '[DONE]  ' : '[    ]  ') + t.name); });
       lines.push('');
     });
-
-    var done  = document.querySelectorAll('input.task-checkbox:checked').length;
-    var total = document.querySelectorAll('input.task-checkbox').length;
+    var done = document.querySelectorAll('input.task-checkbox:checked').length;
+    var tot  = document.querySelectorAll('input.task-checkbox').length;
     lines.push('='.repeat(55));
-    lines.push('TOTAL PROGRESS: ' + done + ' / ' + total + ' (' + Math.round(done / total * 100) + '%)');
-
-    var blob = new Blob([lines.join('\n')], { type: 'text/plain' });
-    var url  = URL.createObjectURL(blob);
-    var a    = document.createElement('a');
-    a.href   = url;
-    a.download = 'safeprompt-seo-status-' + new Date().toISOString().split('T')[0] + '.txt';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    lines.push('TOTAL: ' + done + ' / ' + tot + ' (' + Math.round(done / tot * 100) + '%)');
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/plain' }));
+    a.download = 'safeprompt-seo-' + new Date().toISOString().split('T')[0] + '.txt';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
   };
 
-  // ── Reset All ──
+  // ── Reset ──
   window.resetAll = function () {
-    if (!confirm('Reset ALL task progress? This cannot be undone.')) return;
+    if (!confirm('Reset ALL progress? Cannot be undone.')) return;
     try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
     document.querySelectorAll('input.task-checkbox').forEach(function (cb) {
       cb.checked = false;
-      var row = cb.closest('tr');
-      var li  = cb.closest('li');
-      if (row) row.classList.remove('completed');
-      if (li)  li.classList.remove('completed');
+      var row = cb.closest('tr'), li = cb.closest('li'), step = cb.closest('.step'), toc = cb.closest('.toc-item');
+      if (row)  row.classList.remove('completed');
+      if (li)   li.classList.remove('completed');
+      if (step) { step.classList.remove('completed'); var h = step.querySelector('.step-done-hint'); if (h) h.textContent = 'click'; }
+      if (toc)  toc.classList.remove('completed');
     });
     updateProgress();
   };
-})();
+});
 </script>
 </body>
 </html>
